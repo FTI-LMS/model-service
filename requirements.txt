@@ -1,12 +1,10 @@
-openai>=1.0.0
-python-dotenv>=1.0.0
-moviepy>=1.0.3
-sqlalchemy>=2.0.0
-requests>=2.31.0
-whisper-openai==1.0.0
-tqdm>=4.66.0
-pathlib2>=2.3.7
-psycopg2-binary>=2.9.7  # For PostgreSQL
-pymysql>=1.1.0         # For MySQL
-torch>=2.0.0           # For local Whisper with GPU
-torchvision>=0.15.0    # For local Whisper with GPU
+python-dotenv
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.32
+moviepy==1.0.3
+pydantic==2.8.2
+ffmpeg-python==0.2.0
+whisper-ctranslate2==0.4.8
+llama-cpp-python==0.2.90
+requests==2.32.3
