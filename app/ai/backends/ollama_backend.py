@@ -15,7 +15,7 @@ class OllamaBackend(AIBackend):
         except Exception as e:
             print(f"⚠️  Ollama not available: {e}")
 
-    async def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
+    def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
         if not self.available:
             raise Exception("Ollama backend not available")
 
@@ -31,7 +31,7 @@ class OllamaBackend(AIBackend):
         payload = {"model": Config.OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.2, "num_predict": 150}}
 
         try:
-            resp = await asyncio.to_thread(requests.post, f"{Config.OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60)
+            resp =  asyncio.to_thread(requests.post, f"{Config.OLLAMA_BASE_URL}/api/generate", json=payload, timeout=60)
             if resp.status_code == 200:
                 text = resp.json().get("response", "")
                 m = re.search(r"\{[^}]*\}", text, re.DOTALL)

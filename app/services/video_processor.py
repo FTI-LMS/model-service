@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 import moviepy.editor as mp
 import asyncio
+from app.services.slide_processor import extract_instructor_from_slides, choose_instructor
 
 try:
     import whisper as whisper_og
@@ -29,8 +30,10 @@ class VideoProcessor:
 
         if FASTER_OK:
             size = getattr(Config, "WHISPER_MODEL_SIZE", "base")
+            if not os.path.isdir("/home/vineetmishra89/lms-portal/model-service/models/faster-whisper-base"):
+                 print(f"path does not exist")
             # good defaults for CPU; tweak if you want
-            self.whisper_model = WhisperModel(size, device="cpu", compute_type="int8")
+            self.whisper_model = WhisperModel(model_size_or_path="/home/vineetmishra89/lms-portal/model-service/models/faster-whisper-base", device="cpu", compute_type="int8",local_files_only=True)
             self.backend = "faster-whisper"
             print(f"✅ Whisper model loaded (faster-whisper: {size})")
         elif WHISPER_OG_OK:
@@ -67,24 +70,18 @@ class VideoProcessor:
             return None
 
     # make transcribe_audio async and handle both backends
-    async def transcribe_audio(self, audio_path: str) -> str:
+    def transcribe_audio(self, audio_path: str) -> str:
         if not self.whisper_model:
             return ""
         try:
             if self.backend == "faster-whisper":
                 # returns generator of segments + info; run in a thread
-                def _run():
-                    segments, _info = self.whisper_model.transcribe(audio_path)
-                    return " ".join(seg.text for seg in segments)
-
-                return await asyncio.to_thread(_run)
+                segments, _info = self.whisper_model.transcribe(audio_path)
+                text = "".join(seg.text for seg in segments)
+                return text.strip()
             else:
-                # openai-whisper
-                def _run():
-                    result = self.whisper_model.transcribe(audio_path)
-                    return result.get("text", "")
-
-                return await asyncio.to_thread(_run)
+                result = self.whisper_model.transcribe(audio_path)
+                return result.get("text", "").strip()
         except Exception as e:
             print(f"Error in transcription: {e}")
             return ""
@@ -140,4 +137,34 @@ class VideoProcessor:
                 video_record.processing_status = 'failed'
                 video_record.error_message = str(e)
                 db.commit()
+            raise
+
+
+    def process_file(self, video_path: str) -> Dict[str, Any]:
+        filename = os.path.basename(video_path)
+        try:
+            duration = self.extract_duration(video_path)
+            transcript = ""
+            audio_path = self.extract_audio(video_path,duration)
+            if audio_path:
+                transcript = self.transcribe_audio(audio_path)
+                try: os.unlink(audio_path)
+                except: pass
+
+            analysis = self.ai_manager.analyze_content(transcript, filename)
+            # audio_instrcutor = {"name":analysis.get("instructor_name"), "confidence": analysis.get("confidence_score", 0.0), "source": "audio"}
+            # slide_instructor = extract_instructor_from_slides(video_path)
+            # instructor = choose_instructor(audio_instrcutor,slide_instructor)
+            result = {
+                "filename": filename,
+                "duration": duration,
+                "transcript": transcript,
+                "instructor_name": analysis.get("instructor_name"),
+                "training_content": analysis.get("training_content"),
+                "category": analysis.get("category"),
+                "confidence_score": analysis.get("confidence_score", 0.0),
+                "extraction_method": analysis.get("extraction_method")
+            }
+            return result
+        except Exception as e:
             raise

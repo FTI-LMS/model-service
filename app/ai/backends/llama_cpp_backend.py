@@ -44,7 +44,7 @@ class LlamaCppBackend(AIBackend):
         else:
             print("⚠️  llama-cpp not available or model missing")
 
-    async def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
+    def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
         if not self.available:
             raise Exception("Llama-cpp backend not available")
 
@@ -85,9 +85,8 @@ class LlamaCppBackend(AIBackend):
         ]
 
         try:
-            out = await asyncio.to_thread(
-                self.llm.create_chat_completion,
-                messages=messages,
+            out = self.llm.create_chat_completion(
+                messages=messages, # type: ignore
                 max_tokens=Config.LLAMA_MAX_TOKENS,
                 temperature=Config.LLAMA_TEMPERATURE,
                 top_p=Config.LLAMA_TOP_P

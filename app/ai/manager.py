@@ -18,21 +18,21 @@ class AIBackendManager:
             raise RuntimeError("No AI backend available")
         print(f"🤖 Using AI backend: {self.current_backend.name}")
 
-    async def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
+    def analyze_content(self, transcript: str, filename: str) -> Dict[str, Any]:
         try:
-            result = await self.current_backend.analyze_content(transcript, filename)
+            result = self.current_backend.analyze_content(transcript, filename)
             result["extraction_method"] = self.current_backend.name
             return result
         except Exception:
             for b in self.backends:
                 if b is not self.current_backend and b.available:
                     try:
-                        r = await b.analyze_content(transcript, filename)
+                        r = b.analyze_content(transcript, filename)
                         r["extraction_method"] = f"{b.name} (fallback)"
                         return r
                     except Exception:
                         continue
             # Final fallback
-            r = await PatternBackend().analyze_content(transcript, filename)
+            r = PatternBackend().analyze_content(transcript, filename)
             r["extraction_method"] = "pattern-matching (final fallback)"
             return r

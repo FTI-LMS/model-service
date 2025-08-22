@@ -4,13 +4,15 @@ from urllib.parse import urlparse
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, APIRouter
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import jwt
 from jwt import PyJWKClient
 
 app = FastAPI(title="Graph Delegated API (no secrets)")
+
+router = APIRouter()
 
 # Acceptable audiences for Microsoft Graph tokens
 GRAPH_AUDS = {
@@ -38,58 +40,6 @@ def _peek_payload_noverify(token: str) -> dict:
         raise HTTPException(401, "Malformed JWT")
 
 
-def _issuer_from_token(token: str) -> str:
-    payload = _peek_payload_noverify(token)
-    iss = payload.get("iss")
-    if not iss:
-        raise HTTPException(401, "JWT has no issuer (iss)")
-    return iss  # e.g. https://login.microsoftonline.com/<tenant-id>/v2.0
-
-
-def _jwks_client_for_issuer(issuer: str) -> PyJWKClient:
-    # Discover the JWKS URI dynamically from the issuer's OpenID config
-    oidc_url = f"{issuer}/.well-known/openid-configuration"
-    try:
-        conf = requests.get(oidc_url, timeout=10).json()
-        jwks_uri = conf["jwks_uri"]
-    except Exception:
-        raise HTTPException(502, "Failed to fetch OpenID configuration/JWKS")
-    return PyJWKClient(jwks_uri)
-
-
-def validate_graph_token(token: str) -> dict:
-    issuer = _issuer_from_token(token)
-    jwks = _jwks_client_for_issuer(issuer)
-    try:
-        signing_key = jwks.get_signing_key_from_jwt(token)
-    except Exception:
-        raise HTTPException(401, "Unable to resolve signing key for token")
-
-    try:
-        claims = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            audience=list(GRAPH_AUDS),
-            issuer=issuer,
-            options={"require": ["iss", "aud", "exp"]},
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "Token expired")
-    except jwt.InvalidAudienceError:
-        raise HTTPException(401, "Invalid audience (not a Graph token)")
-    except jwt.InvalidIssuerError:
-        raise HTTPException(401, "Invalid issuer")
-    except Exception as e:
-        raise HTTPException(401, f"Invalid token: {e}")
-
-    nbf = claims.get("nbf")
-    if isinstance(nbf, int) and time.time() < nbf:
-        raise HTTPException(401, "Token not yet valid")
-
-    return claims
-
-
 GRAPH = "https://graph.microsoft.com/v1.0"
 
 
@@ -107,22 +57,6 @@ def graph_get(path_or_url: str, token: str, *, stream: bool = False, timeout: in
     return r
 
 
-@app.get("/whoami")
-def whoami(authorization: str = Header(...)):
-    token = _bearer_to_token(authorization)
-    claims = validate_graph_token(token)
-    me = graph_get("/me", token).json()
-    return {"aud": claims.get("aud"), "tid": claims.get("tid"), "me": me}
-
-
-@app.get("/files")
-def list_my_root_files(authorization: str = Header(...)):
-    token = _bearer_to_token(authorization)
-    validate_graph_token(token)
-    items = graph_get("/me/drive/root/children", token).json()
-    return items
-
-
 class DownloadReq(BaseModel):
     # Option A: user's OneDrive path (e.g., "/Videos/lesson1.mp4")
     user_drive_path: Optional[str] = None
@@ -131,30 +65,4 @@ class DownloadReq(BaseModel):
     drive_path: Optional[str] = None  # e.g. /Shared Documents/Videos/lesson1.mp4
 
 
-@app.post("/download")
-def download(req: DownloadReq, authorization: str = Header(...)):
-    token = _bearer_to_token(authorization)
-    validate_graph_token(token)
-    os.makedirs("downloads", exist_ok=True)
 
-    if req.user_drive_path:
-        # User's OneDrive file
-        url = f"/me/drive/root:{req.user_drive_path}:/content"
-        filename = os.path.basename(req.user_drive_path)
-    elif req.site_url and req.drive_path:
-        # SharePoint file by site → resolve site id then fetch
-        u = urlparse(req.site_url)
-        site = graph_get(f"/sites/{u.netloc}:{u.path}", token).json()
-        site_id = site["id"]
-        url = f"/sites/{site_id}/drive/root:{req.drive_path}:/content"
-        filename = os.path.basename(req.drive_path)
-    else:
-        raise HTTPException(400, "Provide either user_drive_path OR (site_url + drive_path)")
-
-    resp = graph_get(url, token, stream=True, timeout=600)
-    out_path = os.path.join("downloads", filename)
-    with open(out_path, "wb") as f:
-        for chunk in resp.iter_content(1024 * 1024):
-            if chunk: f.write(chunk)
-
-    return FileResponse(out_path, filename=filename)

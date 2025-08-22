@@ -1,7 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import upload as upload_route, jobs as jobs_route, videos as videos_route
+from app.api.routes import upload as upload_route, jobs as jobs_route, videos as videos_route, file_invoker as file_invoker_route
 from app.api.deps import get_ai_manager, get_video_processor
 
 app = FastAPI(title="Video Content Extractor API", version="1.0.0")
@@ -25,3 +25,4 @@ async def health():
 app.include_router(upload_route.router, tags=["upload"])
 app.include_router(jobs_route.router, tags=["jobs"])
 app.include_router(videos_route.router, tags=["videos"])
+app.include_router(file_invoker_route.router, tags=["file_invoker"])
