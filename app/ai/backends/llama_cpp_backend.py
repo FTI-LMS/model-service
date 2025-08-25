@@ -51,30 +51,25 @@ class LlamaCppBackend(AIBackend):
         t = (transcript or "").strip()
         if len(t) > 6000: t = t[:6000]
 
-        prompt = f"""
-                You are an AI trained to extract structured metadata from training video transcripts.
+        prompt = f"""Analyze this training video transcript and extract specific training topics and concepts.
 
-                Instructions:
-                - Analyze the transcript below
-                - Extract these 4 fields:
-                  1. instructor_name (full name if mentioned, else null)
-                  2. training_content (topics of training)
-                  3. category (like Technology, Health, Business, etc.)
-                  4. confidence_score (between 0 and 1)
+FOCUS ON IDENTIFYING SPECIFIC TOPICS, NOT TRANSCRIPT SUMMARY:
 
-                Respond ONLY with a valid JSON object like:
-                {{
-                  "instructor_name": ...,
-                  "training_content": ...,
-                  "category": ...,
-                  "confidence_score": ...
-                }}
+For training_content, identify SPECIFIC topics being taught such as:
+- Technical concepts (e.g., "Java Multithreading", "Spring Framework", "Database Optimization")
+- Business skills (e.g., "Client Communication", "Project Management", "Stakeholder Engagement")  
+- Soft skills (e.g., "Team Leadership", "Problem Resolution", "Presentation Skills")
+- Methodologies (e.g., "Agile Development", "Role-playing Techniques", "Assessment Methods")
 
-                Transcript:
-                \"\"\"
-                {transcript[:1000]}
-                \"\"\"
-                """
+Return ONLY a valid JSON object with these exact fields:
+- instructor_name: full name if mentioned, otherwise null
+- training_content: specific topics and concepts being taught (NOT transcript summary)
+- category: one of (Technology, Business, Education, Health, Science, Unknown)
+- confidence_score: number between 0.0 and 1.0
+
+Transcript: {t[:800]}
+
+JSON response:"""
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -101,4 +96,82 @@ class LlamaCppBackend(AIBackend):
             }
         except Exception as e:
             print(f"Llama-cpp analysis failed: {e}")
-            return self._parse_fallback("", t, filename)
+            return self._enhanced_fallback_analysis(t, filename)
+
+    def _extract_topics_from_transcript(self, transcript: str) -> str:
+        """Extract topics using keyword analysis when AI fails"""
+        if not transcript:
+            return "No content available for analysis"
+
+        # Common topic indicators
+        topic_keywords = [
+            "learn", "understand", "explain", "discuss", "cover", "topic", "subject",
+            "introduction", "overview", "concept", "method", "technique", "process",
+            "algorithm", "function", "class", "module", "framework", "library",
+            "database", "API", "security", "testing", "deployment", "development"
+        ]
+
+        # Split transcript into sentences
+        sentences = re.split(r'[.!?]+', transcript)
+        topics = []
+
+        for sentence in sentences[:20]:  # Analyze first 20 sentences
+            sentence = sentence.strip().lower()
+            if any(keyword in sentence for keyword in topic_keywords):
+                # Extract potential topic phrases
+                words = sentence.split()
+                for i, word in enumerate(words):
+                    if word in topic_keywords and i < len(words) - 2:
+                        topic_phrase = " ".join(words[i:i+3])
+                        topics.append(topic_phrase)
+
+        if topics:
+            return f"Topics identified: {', '.join(set(topics[:10]))}"
+        else:
+            return "General training content - specific topics could not be automatically extracted"
+
+    def _enhanced_fallback_analysis(self, transcript: str, filename: str) -> Dict[str, Any]:
+        """Enhanced fallback analysis with pattern matching"""
+        result = {
+            "instructor_name": None,
+            "training_content": self._extract_topics_from_transcript(transcript),
+            "category": "Unknown",
+            "confidence_score": 0.5,  # Start with better base score
+            "extraction_method": "pattern-fallback"
+        }
+
+        # Enhanced instructor name patterns
+        instructor_patterns = [
+            r"(?:I'm|I am|My name is|This is|Hello,? I'm|Hi,? I'm)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
+            r"Welcome.*?(?:I'm|I am)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
+            r"(?:taught by|instructor|teacher|presenter).*?([A-Z][a-z]+\s+[A-Z][a-z]+)",
+            r"([A-Z][a-z]+\s+[A-Z][a-z]+).*?(?:will be|am)\s+(?:teaching|presenting|leading)"
+        ]
+
+        for pattern in instructor_patterns:
+            match = re.search(pattern, transcript, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                if len(name.split()) >= 2 and len(name) < 50:
+                    result["instructor_name"] = name
+                    result["confidence_score"] = 0.7  # Higher confidence for pattern match
+                    break
+
+        # Category detection from filename and content
+        filename_lower = filename.lower()
+        transcript_lower = transcript.lower()
+
+        category_keywords = {
+            "Technology": ["python", "javascript", "programming", "code", "software", "development", "api", "database"],
+            "Business": ["management", "leadership", "sales", "marketing", "finance", "strategy", "business"],
+            "Health": ["health", "medical", "wellness", "safety", "healthcare", "patient", "clinical"],
+            "Education": ["teaching", "learning", "education", "academic", "curriculum", "student"],
+            "Science": ["research", "experiment", "laboratory", "scientific", "analysis", "data"]
+        }
+
+        for category, keywords in category_keywords.items():
+            if any(keyword in filename_lower or keyword in transcript_lower for keyword in keywords):
+                result["category"] = category
+                break
+
+        return result
