@@ -164,9 +164,7 @@ JSON response:"""
         category_keywords = {
             "Technology": ["python", "javascript", "programming", "code", "software", "development", "api", "database"],
             "Business": ["management", "leadership", "sales", "marketing", "finance", "strategy", "business"],
-            "Health": ["health", "medical", "wellness", "safety", "healthcare", "patient", "clinical"],
-            "Education": ["teaching", "learning", "education", "academic", "curriculum", "student"],
-            "Science": ["research", "experiment", "laboratory", "scientific", "analysis", "data"]
+            "Behaviour": ["teaching", "learning", "education", "academic", "curriculum", "student"]
         }
 
         for category, keywords in category_keywords.items():
