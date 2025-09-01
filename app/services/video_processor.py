@@ -1,4 +1,4 @@
-import os, tempfile, gc
+import os, tempfile, gc, base64
 from typing import Optional, Dict, Any
 from datetime import datetime
 import moviepy.editor as mp
@@ -33,12 +33,9 @@ class VideoProcessor:
 
         if FASTER_OK:
             size = getattr(Config, "WHISPER_MODEL_SIZE", "base")
-            if not os.path.isdir("/home/vineetmishra89/lms-portal/model-service/models/faster-whisper-base"):
-                print(f"path does not exist")
-            # good defaults for CPU; tweak if you want
             self.whisper_model = WhisperModel(
-                model_size_or_path="/home/vineetmishra89/lms-portal/model-service/models/faster-whisper-base",
-                device="cpu", compute_type="int8", local_files_only=True)
+                model_size_or_path=size,
+                device="cpu", compute_type="int8")
             self.backend = "faster-whisper"
             print(f"✅ Whisper model loaded (faster-whisper: {size})")
         elif WHISPER_OG_OK:
@@ -56,6 +53,42 @@ class VideoProcessor:
         except Exception as e:
             print(f"Error extracting duration: {e}")
             return 0.0
+
+    def generate_thumbnail(self, video_path: str) -> Optional[str]:
+        """Generate a small thumbnail from video frame at 2-3 seconds, return as base64 string"""
+        try:
+            from PIL import Image
+            
+            with mp.VideoFileClip(video_path) as video:
+                frame_time = min(2.5, video.duration * 0.1)
+                
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                    frame_path = tmp.name
+                
+                video.save_frame(frame_path, t=frame_time)
+                
+                with Image.open(frame_path) as img:
+                    img.thumbnail((320, 240), Image.Resampling.LANCZOS)
+                    
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as thumb_tmp:
+                        thumb_path = thumb_tmp.name
+                    
+                    img.save(thumb_path, 'JPEG', quality=70, optimize=True)
+                
+                with open(thumb_path, 'rb') as thumb_file:
+                    thumbnail_data = base64.b64encode(thumb_file.read()).decode('utf-8')
+                
+                try:
+                    os.unlink(frame_path)
+                    os.unlink(thumb_path)
+                except:
+                    pass
+                
+                return thumbnail_data
+                
+        except Exception as e:
+            print(f"Error generating thumbnail: {e}")
+            return None
 
     def extract_audio(self, video_path: str, video_duration: int) -> Optional[str]:
         # Check file size limit (500MB threshold)
@@ -337,6 +370,9 @@ class VideoProcessor:
                     pass
 
             analysis = self.ai_manager.analyze_content(transcript, filename)
+            
+            thumbnail = self.generate_thumbnail(video_path)
+            
             # audio_instrcutor = {"name":analysis.get("instructor_name"), "confidence": analysis.get("confidence_score", 0.0), "source": "audio"}
             # slide_instructor = extract_instructor_from_slides(video_path)
             # instructor = choose_instructor(audio_instrcutor,slide_instructor)
@@ -348,7 +384,8 @@ class VideoProcessor:
                 "moduleTopic": analysis.get("training_content"),
                 "category": analysis.get("category"),
                 "confidence_score": analysis.get("confidence_score", 0.0),
-                "extraction_method": analysis.get("extraction_method")
+                "extraction_method": analysis.get("extraction_method"),
+                "thumbnail": thumbnail
             }
             return result
         except Exception as e:

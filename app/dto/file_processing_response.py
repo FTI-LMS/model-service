@@ -11,3 +11,4 @@ class FileProcessingResponse(BaseModel):
       category: Optional[str] = None
       confidence_score: float = 0.0
       extraction_method: Optional[str] = None
+      thumbnail: Optional[str] = None
